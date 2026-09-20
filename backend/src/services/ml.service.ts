@@ -168,7 +168,8 @@ export const predictSuitabilityBatch = async (
   let endpointUrl: URL;
   try {
     const cleanUrl = rawUrl.trim();
-    if (cleanUrl.includes('https://roamly-ml.onrender.com') || cleanUrl.includes('placeholder')) {
+    // Only throw an error if an actual generic placeholder string is used
+    if (cleanUrl.includes('<your-render-app>') || cleanUrl.includes('placeholder')) {
       throw new Error('Placeholder URL detected');
     }
     const baseEndpoint = cleanUrl.endsWith('/predict')
@@ -176,7 +177,6 @@ export const predictSuitabilityBatch = async (
       : `${cleanUrl.replace(/\/$/, '')}/predict`;
     endpointUrl = new URL(baseEndpoint);
   } catch (err: any) {
-    
     console.warn(`[ML Service] Invalid ML_SERVICE_URL configured ("${rawUrl}"). Ensure it is a valid HTTP/HTTPS URL. Error: ${err.message}`);
     return null;
   }
