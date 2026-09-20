@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DetailScreen } from "./components/DetailScreen";
 import { Header } from "./components/Header";
 import { HomeScreen } from "./components/HomeScreen";
@@ -10,6 +10,8 @@ import { SavedScreen } from "./components/SavedScreen";
 import { PLACES } from "./data/mockPlaces";
 import { Place, Screen } from "./types";
 
+const SAVED_PLACES_STORAGE_KEY = "roamly:saved-places";
+
 export default function App() {
   const [screen, setScreen] = useState<Screen>("home");
   const [selectedLocation, setSelectedLocation] = useState("Mumbai , Maharashtra");
@@ -18,6 +20,7 @@ export default function App() {
   const [selectedTime, setSelectedTime] = useState("3h");
   const [selectedMood, setSelectedMood] = useState("Relax");
   const [preferenceText, setPreferenceText] = useState("");
+  const [savedPlaces, setSavedPlaces] = useState<Place[]>([]);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [activePlace, setActivePlace] = useState<Place | null>(null);
 
@@ -26,15 +29,54 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  function toggleSave(id: string) {
-    setSavedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
+  // Load saved places on client mount
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(SAVED_PLACES_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          const validPlaces: Place[] = parsed.filter(
+            (item): item is Place => Boolean(item && typeof item === "object" && item.id && item.name)
+          );
+          setSavedPlaces(validPlaces);
+          setSavedIds(new Set(validPlaces.map((p) => p.id)));
+        }
       }
-      return next;
+    } catch (e) {
+      console.warn("Failed to load saved places from localStorage:", e);
+    }
+  }, []);
+
+  function toggleSave(id: string) {
+    setSavedPlaces((prevPlaces) => {
+      const isAlreadySaved = prevPlaces.some((p) => p.id === id);
+      let nextPlaces: Place[];
+
+      if (isAlreadySaved) {
+        nextPlaces = prevPlaces.filter((p) => p.id !== id);
+      } else {
+        const placeToSave =
+          results.find((p) => p.id === id) ||
+          PLACES.find((p) => p.id === id) ||
+          (activePlace?.id === id ? activePlace : null);
+
+        if (placeToSave) {
+          nextPlaces = [placeToSave, ...prevPlaces];
+        } else {
+          nextPlaces = prevPlaces;
+        }
+      }
+
+      setSavedIds(new Set(nextPlaces.map((p) => p.id)));
+
+      try {
+        localStorage.setItem(SAVED_PLACES_STORAGE_KEY, JSON.stringify(nextPlaces));
+      } catch (e) {
+        console.warn("Failed to persist saved places to localStorage:", e);
+      }
+
+      return nextPlaces;
     });
   }
 
@@ -47,11 +89,6 @@ export default function App() {
     setScreen(s);
     if (s !== "detail") setActivePlace(null);
   }
-
-  // Combined results + mockPlaces pool for saved places resolution
-  const savedPlaces = [...results, ...PLACES].filter(
-    (p, index, self) => savedIds.has(p.id) && self.findIndex((item) => item.id === p.id) === index
-  );
 
   const handleSearch = async () => {
     setIsLoading(true);

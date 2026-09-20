@@ -9,7 +9,7 @@ export function RoamlyLogo() {
         {!imgError ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src="/Roamly-Logo.avif"
+            src="/Roamly-Logo.ico"
             alt="Roamly Logo"
             className="w-full h-full object-contain p-0.5"
             onError={() => setImgError(true)}

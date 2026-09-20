@@ -5,7 +5,16 @@ export const metadata: Metadata = {
   title: "Roamly — Smart Local Place Recommendation",
   description: "Lightweight local place recommendation app. Tell us how much time you have and what you're in the mood for.",
   icons: {
-    icon: "/Roamly-Logo.ico",
+    icon: [
+      {
+        url: "/favicon.ico",
+      },
+      {
+        url: "/icon.png",
+        type: "image/png",
+      },
+    ],
+    apple: "/icon.png",
   },
 };
 

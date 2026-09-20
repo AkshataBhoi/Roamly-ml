@@ -28,15 +28,20 @@ export const geocodeAddress = async (address: string): Promise<GeocodeResult | n
         limit: 1,
       },
       headers: API_HEADERS,
+      timeout: 10000,
     });
 
     if (response.data && response.data.length > 0) {
       return response.data[0];
     }
     return null;
-  } catch (error) {
-    console.error('Error in geocodeAddress:', error);
-    throw new Error('Failed to geocode address');
+  } catch (error: any) {
+    console.error('Error in geocodeAddress:', error?.message || error);
+    const err: any = new Error('Failed to geocode address');
+    err.isUpstream = true;
+    err.code = error?.code;
+    err.status = error?.response?.status;
+    throw err;
   }
 };
 
@@ -49,15 +54,20 @@ export const reverseGeocode = async (lat: number, lon: number): Promise<string |
         format: 'json',
       },
       headers: API_HEADERS,
+      timeout: 10000,
     });
 
     if (response.data && response.data.display_name) {
       return response.data.display_name;
     }
     return null;
-  } catch (error) {
-    console.error('Error in reverseGeocode:', error);
-    throw new Error('Failed to reverse geocode coordinates');
+  } catch (error: any) {
+    console.error('Error in reverseGeocode:', error?.message || error);
+    const err: any = new Error('Failed to reverse geocode coordinates');
+    err.isUpstream = true;
+    err.code = error?.code;
+    err.status = error?.response?.status;
+    throw err;
   }
 };
 

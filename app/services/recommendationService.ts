@@ -1,22 +1,32 @@
 import { Place, RecommendationQuery } from "../types";
 
-// Production uses the relative /api path handled by Vercel.
-// Local development uses NEXT_PUBLIC_API_URL from .env.local.
-const getApiBaseUrl = (): string => {
-  if (process.env.NODE_ENV === "production") {
+// Safe environment API URL resolution:
+// Same-origin /api is preferred because frontend and backend live under the same domain.
+// http://localhost:5000/api must NEVER be used by the deployed browser.
+export const getApiBaseUrl = (): string => {
+  if (typeof window !== "undefined") {
+    const hostname = window.location.hostname;
+    const isLocalhost = hostname === "localhost" || hostname === "127.0.0.1";
+
+    // Deployed production browser must NEVER call localhost
+    if (!isLocalhost) {
+      const customUrl = process.env.NEXT_PUBLIC_API_URL;
+      if (customUrl && !customUrl.includes("localhost") && !customUrl.includes("127.0.0.1")) {
+        return customUrl.replace(/\/$/, "");
+      }
+      return "/api";
+    }
+
+    // On local machine, if an external non-port-5000 URL is specified use it, otherwise use unified same-origin /api
+    const customUrl = process.env.NEXT_PUBLIC_API_URL;
+    if (customUrl && !customUrl.includes(":5000")) {
+      return customUrl.replace(/\/$/, "");
+    }
     return "/api";
   }
 
-  const url = process.env.NEXT_PUBLIC_API_URL;
-
-  if (!url) {
-    throw new Error("NEXT_PUBLIC_API_URL is not configured");
-  }
-
-  return url;
+  return "/api";
 };
-
-const API_BASE_URL = getApiBaseUrl();
 
 export interface IRecommendationService {
   getRecommendations(query: RecommendationQuery): Promise<Place[]>;
@@ -45,7 +55,8 @@ async getRecommendations(query: RecommendationQuery): Promise<Place[]> {
     const lat = latitude ?? 40.7128;
     const lng = longitude ?? -74.0060;
 
-    const response = await fetch(`${API_BASE_URL}/recommendations`, {
+    const baseUrl = getApiBaseUrl();
+    const response = await fetch(`${baseUrl}/recommendations`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -116,7 +127,8 @@ async getRecommendations(query: RecommendationQuery): Promise<Place[]> {
 
   async geocodeAddress(address: string): Promise<{ latitude: number; longitude: number; address: string } | null> {
     try {
-      const response = await fetch(`${API_BASE_URL}/location/geocode?address=${encodeURIComponent(address)}`);
+      const baseUrl = getApiBaseUrl();
+      const response = await fetch(`${baseUrl}/location/geocode?address=${encodeURIComponent(address)}`);
       if (!response.ok) return null;
       return await response.json();
     } catch (error) {
@@ -127,7 +139,8 @@ async getRecommendations(query: RecommendationQuery): Promise<Place[]> {
 
   async reverseGeocode(lat: number, lng: number): Promise<string | null> {
     try {
-      const response = await fetch(`${API_BASE_URL}/location/reverse?lat=${lat}&lng=${lng}`);
+      const baseUrl = getApiBaseUrl();
+      const response = await fetch(`${baseUrl}/location/reverse?lat=${lat}&lng=${lng}`);
       if (!response.ok) return null;
       const data = await response.json();
       return data.address;

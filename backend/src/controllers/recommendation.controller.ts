@@ -52,6 +52,7 @@ const fetchWikiThumbnail = async (title: string): Promise<string | null> => {
       headers: {
         'User-Agent': 'RoamlyApp/1.0',
       },
+      signal: AbortSignal.timeout(3000),
     });
 
     if (!resp.ok) return null;
@@ -81,6 +82,7 @@ const searchWikiForPlace = async (placeName: string, city?: string): Promise<str
       headers: {
         'User-Agent': 'RoamlyApp/1.0',
       },
+      signal: AbortSignal.timeout(3000),
     });
 
     if (!resp.ok) return null;
@@ -211,8 +213,22 @@ export const getRecommendations = async (req: Request, res: Response) => {
   const rawPreferences: string = req.body.preferenceText || req.body.preferences || '';
   const locationLabel: string = req.body.location || req.body.address || 'Selected Location';
 
+  const lat = Number(latitude);
+  const lon = Number(longitude);
+
   // Strict parameter validation
-  if (!latitude || !longitude || isNaN(Number(latitude)) || isNaN(Number(longitude))) {
+  if (
+    latitude === undefined ||
+    longitude === undefined ||
+    latitude === null ||
+    longitude === null ||
+    isNaN(lat) ||
+    isNaN(lon) ||
+    lat < -90 ||
+    lat > 90 ||
+    lon < -180 ||
+    lon > 180
+  ) {
     return res.status(400).json({
       error: 'Unable to pinpoint selected geolocation. Please enter a valid address manually.',
     });
@@ -220,9 +236,6 @@ export const getRecommendations = async (req: Request, res: Response) => {
 
   const normalizedMood = normalizeMood(rawMood);
   const timeConfig = parseTimeLogic(rawTime);
-
-  const lat = Number(latitude);
-  const lon = Number(longitude);
 
   try {
     // 1. Mood Filter & Radius Configuration
@@ -431,8 +444,8 @@ export const getRecommendations = async (req: Request, res: Response) => {
 
     return res.json({ places: formattedPlaces });
   } catch (error: any) {
-    console.error('Recommendation error:', error);
-    if (error.isUpstream || error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+    console.error('Recommendation error:', error?.message || error);
+    if (error.isUpstream || error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT' || error.code === 'ENOTFOUND' || (error.status && error.status >= 500)) {
       return res.status(503).json({
         error: 'The OpenStreetMap Overpass service timed out or is temporarily unreachable. Please try again in a few moments.',
       });

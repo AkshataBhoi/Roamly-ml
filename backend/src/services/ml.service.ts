@@ -153,7 +153,8 @@ export const buildPlaceFeatures = (
 };
 
 /**
- * Resolve the Python executable path safely across environments
+ * Resolve the Python executable path safely across environments.
+ * Priority: PYTHON_PATH env var > .venv inside mlDir > system 'python3' / 'python'
  */
 export const resolvePythonPath = (mlDir: string): string => {
   if (process.env.PYTHON_PATH && fs.existsSync(process.env.PYTHON_PATH)) {
@@ -168,12 +169,8 @@ export const resolvePythonPath = (mlDir: string): string => {
     return venvPython;
   }
 
-  const winDefault = 'C:\\Users\\Akshata Bhoi\\AppData\\Local\\Programs\\Python\\Python314\\python.exe';
-  if (process.platform === 'win32' && fs.existsSync(winDefault)) {
-    return winDefault;
-  }
-
-  return process.env.PYTHON_PATH || 'python';
+  // Use the system python3 / python from PATH — no hardcoded user-specific paths
+  return process.platform === 'win32' ? 'python' : 'python3';
 };
 
 /**
@@ -214,14 +211,29 @@ export const predictSuitabilityBatch = async (
     }
   }
 
-  // 2. Local development fallback: execute via Python subprocess
+  // In production (e.g. Vercel serverless), local python subprocess is not available; use deterministic ranking fallback
+  if (process.env.NODE_ENV === 'production') {
+    return null;
+  }
+
+  // 2. Local development fallback: execute via Python subprocess.
+  // Use process.cwd() (the project root) rather than __dirname because __dirname
+  // resolves inside .next/ when this module is bundled by Turbopack/Next.js.
   return new Promise((resolve) => {
     try {
-      const mlDir = path.resolve(__dirname, '../../../ml');
+      const mlDir = path.resolve(process.cwd(), 'ml');
       const scriptPath = path.join(mlDir, 'src', 'batch_predict.py');
-      const pythonExec = resolvePythonPath(mlDir);
 
-      const pyProcess = spawn(pythonExec, [scriptPath], {
+      if (!fs.existsSync(scriptPath)) {
+        console.warn(`ML script not found at expected path: ${scriptPath} — skipping subprocess, using fallback.`);
+        resolve(null);
+        return;
+      }
+
+      const pythonExec = resolvePythonPath(mlDir);
+      console.log(`[ML] Spawning Python: ${pythonExec} | Script: ${scriptPath}`);
+
+      const pyProcess = spawn(/*turbopackIgnore: true*/ pythonExec, [scriptPath], {
         cwd: mlDir,
         env: { ...process.env, PYTHONUNBUFFERED: '1' },
       });
