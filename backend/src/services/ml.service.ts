@@ -1,7 +1,3 @@
-import fs from 'fs';
-import path from 'path';
-import { spawn } from 'child_process';
-import axios from 'axios';
 import { OverpassNode } from './osm.service';
 
 export interface MLPlaceFeatures {
@@ -153,29 +149,7 @@ export const buildPlaceFeatures = (
 };
 
 /**
- * Resolve the Python executable path safely across environments.
- * Priority: PYTHON_PATH env var > .venv inside mlDir > system 'python3' / 'python'
- */
-export const resolvePythonPath = (mlDir: string): string => {
-  if (process.env.PYTHON_PATH && fs.existsSync(process.env.PYTHON_PATH)) {
-    return process.env.PYTHON_PATH;
-  }
-
-  const venvPython = process.platform === 'win32'
-    ? path.join(mlDir, '.venv', 'Scripts', 'python.exe')
-    : path.join(mlDir, '.venv', 'bin', 'python');
-
-  if (fs.existsSync(venvPython)) {
-    return venvPython;
-  }
-
-  // Use the system python3 / python from PATH — no hardcoded user-specific paths
-  return process.platform === 'win32' ? 'python' : 'python3';
-};
-
-/**
- * Execute batch prediction via HTTP ML service (production/Vercel or local ML server)
- * with graceful fallback to local Python subprocess runner for local dev.
+ * Execute batch prediction via HTTP ML service (production/Vercel or external microservice)
  */
 export const predictSuitabilityBatch = async (
   featuresList: MLPlaceFeatures[],
@@ -185,115 +159,48 @@ export const predictSuitabilityBatch = async (
     return [];
   }
 
-  // 1. Try HTTP ML Service if ML_SERVICE_URL is defined or in production
-  const mlServiceUrl = process.env.ML_SERVICE_URL;
-  if (mlServiceUrl) {
-    try {
-      const endpoint = mlServiceUrl.endsWith('/predict') ? mlServiceUrl : `${mlServiceUrl.replace(/\/$/, '')}/predict`;
-      const response = await axios.post(
-        endpoint,
-        featuresList,
-        {
-          headers: { 'Content-Type': 'application/json' },
-          timeout: timeoutMs,
-        }
-      );
-
-      if (response.data && Array.isArray(response.data.predictions)) {
-        return response.data.predictions;
-      }
-    } catch (httpError: any) {
-      console.warn(`HTTP ML Service at ${mlServiceUrl} failed:`, httpError.message);
-      // If in production or no local subprocess available, fail gracefully
-      if (process.env.NODE_ENV === 'production') {
-        return null;
-      }
-    }
-  }
-
-  // In production (e.g. Vercel serverless), local python subprocess is not available; use deterministic ranking fallback
-  if (process.env.NODE_ENV === 'production') {
+  const rawUrl = process.env.ML_SERVICE_URL;
+  if (!rawUrl) {
+    console.warn('[ML Service] ML_SERVICE_URL is not defined, using fallback.');
     return null;
   }
 
-  // 2. Local development fallback: execute via Python subprocess.
-  // Use process.cwd() (the project root) rather than __dirname because __dirname
-  // resolves inside .next/ when this module is bundled by Turbopack/Next.js.
-  return new Promise((resolve) => {
-    try {
-      const mlDir = path.resolve(process.cwd(), 'ml');
-      const scriptPath = path.join(mlDir, 'src', 'batch_predict.py');
-
-      if (!fs.existsSync(scriptPath)) {
-        console.warn(`ML script not found at expected path: ${scriptPath} — skipping subprocess, using fallback.`);
-        resolve(null);
-        return;
-      }
-
-      const pythonExec = resolvePythonPath(mlDir);
-      console.log(`[ML] Spawning Python: ${pythonExec} | Script: ${scriptPath}`);
-
-      const pyProcess = spawn(/*turbopackIgnore: true*/ pythonExec, [scriptPath], {
-        cwd: mlDir,
-        env: { ...process.env, PYTHONUNBUFFERED: '1' },
-      });
-
-      let stdoutData = '';
-      let stderrData = '';
-      let isTimedOut = false;
-
-      const timer = setTimeout(() => {
-        isTimedOut = true;
-        pyProcess.kill();
-        console.warn('ML prediction timed out -> fallback will be used');
-        resolve(null);
-      }, timeoutMs);
-
-      pyProcess.stdout.on('data', (data) => {
-        stdoutData += data.toString();
-      });
-
-      pyProcess.stderr.on('data', (data) => {
-        stderrData += data.toString();
-      });
-
-      pyProcess.on('error', (err) => {
-        clearTimeout(timer);
-        console.warn('Failed to start ML Python process:', err.message);
-        resolve(null);
-      });
-
-      pyProcess.on('close', (code) => {
-        clearTimeout(timer);
-        if (isTimedOut) return;
-
-        if (code !== 0) {
-          console.warn(`ML process exited with code ${code}: ${stderrData}`);
-          resolve(null);
-          return;
-        }
-
-        try {
-          const parsed = JSON.parse(stdoutData);
-          if (parsed && Array.isArray(parsed.predictions)) {
-            resolve(parsed.predictions);
-          } else {
-            console.warn('ML response missing predictions array:', parsed);
-            resolve(null);
-          }
-        } catch (parseError: any) {
-          console.warn('Failed to parse ML response JSON:', parseError.message);
-          resolve(null);
-        }
-      });
-
-      // Send features JSON through stdin
-      pyProcess.stdin.write(JSON.stringify(featuresList));
-      pyProcess.stdin.end();
-    } catch (error: any) {
-      console.warn('ML service execution error:', error.message || error);
-      resolve(null);
+  let endpointUrl: URL;
+  try {
+    const cleanUrl = rawUrl.trim();
+    if (cleanUrl.includes('<your-render-app>') || cleanUrl.includes('placeholder')) {
+      throw new Error('Placeholder URL detected');
     }
-  });
-};
+    const baseEndpoint = cleanUrl.endsWith('/predict')
+      ? cleanUrl
+      : `${cleanUrl.replace(/\/$/, '')}/predict`;
+    endpointUrl = new URL(baseEndpoint);
+  } catch (err: any) {
+    console.warn(`[ML Service] Invalid ML_SERVICE_URL configured ("${rawUrl}"). Ensure it is a valid HTTP/HTTPS URL. Error: ${err.message}`);
+    return null;
+  }
 
+  try {
+    const response = await fetch(endpointUrl.toString(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(featuresList),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+
+    if (!response.ok) {
+      console.warn(`HTTP ML Service failed with status: ${response.status}`);
+      return null;
+    }
+
+    const data = await response.json();
+    if (data && Array.isArray(data.predictions)) {
+      return data.predictions;
+    }
+
+    return null;
+  } catch (error: any) {
+    console.warn(`HTTP ML Service at ${endpointUrl} failed:`, error.message);
+    return null;
+  }
+};

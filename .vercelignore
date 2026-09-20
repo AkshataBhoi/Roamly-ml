@@ -1,0 +1,7 @@
+ml/.venv
+.venv
+venv
+__pycache__
+*.pyc
+ml/notebooks
+ml/data
