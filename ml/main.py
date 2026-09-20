@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
 import joblib
@@ -8,7 +9,16 @@ from xgboost import XGBClassifier
 
 app = FastAPI(title="Roamly ML Service")
 
-# Setup paths
+# 1. Add CORS Middleware to allow requests from Vercel / Node backend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Setup paths relative to file location
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODELS_DIR = os.path.join(BASE_DIR, "models")
 PREPROCESSOR_PATH = os.path.join(MODELS_DIR, "preprocessor.joblib")
@@ -42,14 +52,23 @@ class PlaceFeature(BaseModel):
     time_fit: int
     distance_fit: int
 
+@app.get("/")
+def health_check():
+    """Health check endpoint to ping or test service availability."""
+    return {"status": "ok", "service": "Roamly ML Engine"}
+
 @app.post("/predict")
 def predict(features: List[PlaceFeature]):
     if not features:
         return {"predictions": []}
     
     try:
-        # Convert request to DataFrame
-        df = pd.DataFrame([f.dict() for f in features])
+        # Convert Pydantic features to dictionary safely (supports Pydantic v1 and v2)
+        data = [
+            f.model_dump() if hasattr(f, "model_dump") else f.dict()
+            for f in features
+        ]
+        df = pd.DataFrame(data)
         
         feature_columns = [
             "city", "category", "mood", "available_time_min", 

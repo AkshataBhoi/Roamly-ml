@@ -176,6 +176,7 @@ export const predictSuitabilityBatch = async (
       : `${cleanUrl.replace(/\/$/, '')}/predict`;
     endpointUrl = new URL(baseEndpoint);
   } catch (err: any) {
+    
     console.warn(`[ML Service] Invalid ML_SERVICE_URL configured ("${rawUrl}"). Ensure it is a valid HTTP/HTTPS URL. Error: ${err.message}`);
     return null;
   }
