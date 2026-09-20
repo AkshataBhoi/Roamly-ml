@@ -168,7 +168,7 @@ export const predictSuitabilityBatch = async (
   let endpointUrl: URL;
   try {
     const cleanUrl = rawUrl.trim();
-    if (cleanUrl.includes('<your-render-app>') || cleanUrl.includes('placeholder')) {
+    if (cleanUrl.includes('https://roamly-ml.onrender.com') || cleanUrl.includes('placeholder')) {
       throw new Error('Placeholder URL detected');
     }
     const baseEndpoint = cleanUrl.endsWith('/predict')
